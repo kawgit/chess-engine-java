@@ -8,3 +8,29 @@ TODO:
 -other ideas:
   -implement PVS
   -implement iterative deepening
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ -destroy chess club
