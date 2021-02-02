@@ -26,16 +26,24 @@ key: (negative for black pieces)
 */
 class Main {
   public static void main(String[] args) {
-    var gs = new gameState();
+
+
+    var gs = new gameState("6k1/1pN3pn/b1np3p/p7/7N/1P4PP/P5BK/4r3 w - - 0 25", 1, 7);
+
+
     boolean running = true;
 
     Scanner scanner = new Scanner(System.in);
     while (running)//player vs player or player vs ai format
     {
+      if (gs.turn == gs.aiMode)
+      {
+        gs.makeMove(gs.getBestMove());
+      }
       gs.printBoard();
       System.out.println("enter move: \n");
       String input = scanner.nextLine();
-      if (isNumeric(input))
+      if (input.length() == 4)
       {
         Move move = gs.isInValid(input);
         if (move.moveID != "")
@@ -43,7 +51,6 @@ class Main {
           gs.makeMove(move);
         }        
       }
-
       else if (input.equals("u"))
       {
         gs.undoMove();
@@ -56,7 +63,6 @@ class Main {
       {
         System.out.println("unknown command <"+input+">");
       }
-      
     }
     if (!running)
     {
@@ -79,141 +85,187 @@ class Main {
 }
 
 class gameState {
-  public byte board[] = new byte[]
+  public byte board[] = new byte[64];
+  public int turn; //1 and -1
+  public int aiMode; //0 = off, 1 = play for positive(white) (will be able to play for different colors in future, for now it plays as white only)
+  public int startDepth;
+
+  HashMap<Integer, String> boardPrintKey = new HashMap<Integer, String>();
+  HashMap<String, Integer> fenKey = new HashMap<String, Integer>();
+
+  ArrayList<Square> knightMoves = new ArrayList<Square>();
+  ArrayList<Square> bishopDirections = new ArrayList<Square>();
+  ArrayList<Square> rookDirections = new ArrayList<Square>();
+  ArrayList<Square> queenDirections = new ArrayList<Square>();
+  ArrayList<Square> kingMoves = new ArrayList<Square>();
+  ArrayList<Square[]> pins = new ArrayList<Square[]>();
+  ArrayList<Square[]> checks = new ArrayList<Square[]>();
+  ArrayList<Move> moveLog = new ArrayList<Move>();
+  ArrayList<CastleRights> castleRightsLog = new ArrayList<CastleRights>();
+  ArrayList<Square> enPassantLog = new ArrayList<Square>();
+
+  Square pKloc; //positive king location
+  Square nKloc; //negative king location
+  Square enPassant = new Square(0,0); //possible location of enpassant capture (erow, ecol)
+  CastleRights castleRights = new CastleRights(false, false, false, false);
+
+
+  gameState(String fen, int IaiMode, int Istartdepth)
   {
-     4, 0, 0, 0, 6, 0, 0, 4,
-     1, 1, 1, 1, 1, 0, 0, 1,
-     0, 0, 0, 0, 0, 0, 0, 0,
-     0, 0, 0, 0, 0, 0, 0, 0,
-     0, 0, 0, 0, 0, 0, 0, 0,
-     0, 0, 0, 0, 0, -4, -4, 0,
-    -1,-1,-1,-1,-1,-1,-1,-1,
-    -4, 0, 0, 0,-6, 0, 0,-4
-  };
-  /*
-  {
-    4, 2, 3, 5, 6, 3, 2, 4,
-    1, 1, 1, 1, 1, 1, 1, 1,
-    0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0,
-   -1,-1,-1,-1,-1,-1,-1,-1,
-   -4,-2,-3,-5,-6,-3,-2,-4
- };
- */
-  public int turn = 1; // or -1
-  public HashMap<Integer, String> boardPrintKey = new HashMap<Integer, String>();
-  public ArrayList<Square> knightMoves = new ArrayList<Square>();
-  public ArrayList<Square> bishopDirections = new ArrayList<Square>();
-  public ArrayList<Square> rookDirections = new ArrayList<Square>();
-  public ArrayList<Square> queenDirections = new ArrayList<Square>();
-  public ArrayList<Square> kingMoves = new ArrayList<Square>();
-  public ArrayList<Square[]> pins = new ArrayList<Square[]>();
-  public  ArrayList<Square[]> checks = new ArrayList<Square[]>();
-  public Square pKloc; //positive king location
-  public Square nKloc; //negative king location
-  public ArrayList<Move> moveLog = new ArrayList<Move>();
-  public ArrayList<CastleRights> castleRightsLog = new ArrayList<CastleRights>();
-  public CastleRights castleRights = new CastleRights(false, false, false, false);
-  public Square enPassant = new Square(0,0);
-  public ArrayList<Square> enPassantLog = new ArrayList<Square>();
-  gameState()
-  {
+    aiMode = IaiMode;
+    startDepth = Istartdepth;
+
+    //constructed here because it is needed for crreation of board
+    fenKey.put("p", -1);
+    fenKey.put("n", -2);
+    fenKey.put("b", -3);
+    fenKey.put("r", -4);
+    fenKey.put("q", -5);
+    fenKey.put("k", -6);
+    fenKey.put("P", 1);
+    fenKey.put("N", 2);
+    fenKey.put("B", 3);
+    fenKey.put("R", 4);
+    fenKey.put("Q", 5);
+    fenKey.put("K", 6);
+
     //contruct lists and maps
+    int square = 0;
+    for (int i = 0; i < fen.length(); i++)
     {
-      boardPrintKey.put(0,"--");
-      boardPrintKey.put(1,"wP");
-      boardPrintKey.put(2,"wN");
-      boardPrintKey.put(3,"wB");
-      boardPrintKey.put(4,"wR");
-      boardPrintKey.put(5,"wQ");
-      boardPrintKey.put(6,"wK");
-      boardPrintKey.put(-1,"bP");
-      boardPrintKey.put(-2,"bN");
-      boardPrintKey.put(-3,"bB");
-      boardPrintKey.put(-4,"bR");
-      boardPrintKey.put(-5,"bQ");
-      boardPrintKey.put(-6,"bK");
-      knightMoves.add(new Square(1,2));
-      knightMoves.add(new Square(1,-2));
-      knightMoves.add(new Square(2,1));
-      knightMoves.add(new Square(2,-1));
-      knightMoves.add(new Square(-1,2));
-      knightMoves.add(new Square(-1,-2));
-      knightMoves.add(new Square(-2,1));
-      knightMoves.add(new Square(-2,-1));
-
-      bishopDirections.add(new Square(1,1));
-      bishopDirections.add(new Square(1,-1));
-      bishopDirections.add(new Square(-1,1));
-      bishopDirections.add(new Square(-1,-1));
-
-      rookDirections.add(new Square(1,0));
-      rookDirections.add(new Square(0,1));
-      rookDirections.add(new Square(-1,0));
-      rookDirections.add(new Square(0,-1));
-
-      queenDirections.addAll(bishopDirections);
-      queenDirections.addAll(rookDirections);
-
-      for (int row = 0; row < 8; row++)
+      String c = fen.substring(i, i+1);
+      if (square <= 63)
       {
-        for (int col = 0; col < 8; col++)
+        if (isNumeric(c))
         {
-          if (board[row*8+col] == 6)
-          {
-            pKloc = new Square(row, col);
-          }
-          else if (board[row*8+col] == -6)
-          {
-            nKloc = new Square(row, col);
-          }
+          square += Integer.valueOf(c);
+        }
+        else if (!c.equals("/"))
+        {
+          int a = fenKey.get(c);
+          board[-square + square%8 + square%8 + 56] = (byte)a;
+          square++;
+        }        
+      }
+      else 
+      {
+        if (c.equals("w"))
+        {
+          turn = 1;
+        }
+        else if (c.equals("b"))
+        {
+          turn = -1;
+        }
+        else if (c.equals("K"))
+        {
+          castleRights.wKs = true;
+        }
+        else if (c.equals("k"))
+        {
+          castleRights.bKs = true;
+        }
+        else if (c.equals("Q"))
+        {
+          castleRights.wQs = true;
+        }
+        else if (c.equals("q"))
+        {
+          castleRights.bQs = true;
         }
       }
     }
-    //define castle rights
-    if (board[4] == 6)
+    cgv();
+  }
+
+
+
+  public static boolean isNumeric(String str)
+  {
+    try
     {
-      if (board[7] == 4)
-      {
-        castleRights.wKs = true;
-      }
-      if (board[0] == 4)
-      {
-        castleRights.wQs = true;
-      }
+      Integer.parseInt(str);
+      return true;
     }
-    if (board[60] == -6)
+    catch (Exception e)
     {
-      if (board[63] == -4)
+      return false;
+    }
+  }
+
+  void cgv() //construct game variables
+  {
+    boardPrintKey.put(0,"--");
+    boardPrintKey.put(1,"wP");
+    boardPrintKey.put(2,"wN");
+    boardPrintKey.put(3,"wB");
+    boardPrintKey.put(4,"wR");
+    boardPrintKey.put(5,"wQ");
+    boardPrintKey.put(6,"wK");
+    boardPrintKey.put(-1,"bP");
+    boardPrintKey.put(-2,"bN");
+    boardPrintKey.put(-3,"bB");
+    boardPrintKey.put(-4,"bR");
+    boardPrintKey.put(-5,"bQ");
+    boardPrintKey.put(-6,"bK");
+    knightMoves.add(new Square(1,2));
+    knightMoves.add(new Square(1,-2));
+    knightMoves.add(new Square(2,1));
+    knightMoves.add(new Square(2,-1));
+    knightMoves.add(new Square(-1,2));
+    knightMoves.add(new Square(-1,-2));
+    knightMoves.add(new Square(-2,1));
+    knightMoves.add(new Square(-2,-1));
+
+    bishopDirections.add(new Square(1,1));
+    bishopDirections.add(new Square(1,-1));
+    bishopDirections.add(new Square(-1,1));
+    bishopDirections.add(new Square(-1,-1));
+
+    rookDirections.add(new Square(1,0));
+    rookDirections.add(new Square(0,1));
+    rookDirections.add(new Square(-1,0));
+    rookDirections.add(new Square(0,-1));
+
+    queenDirections.addAll(bishopDirections);
+    queenDirections.addAll(rookDirections);
+
+    for (int row = 0; row < 8; row++)
+    {
+      for (int col = 0; col < 8; col++)
       {
-        castleRights.bKs = true;
-      }
-      if (board[56] == -4)
-      {
-        castleRights.bQs = true;
+        if (board[row*8+col] == 6)
+        {
+          pKloc = new Square(row, col);
+        }
+        else if (board[row*8+col] == -6)
+        {
+          nKloc = new Square(row, col);
+        }
       }
     }
     castleRightsLog.add(new CastleRights(castleRights.wKs, castleRights.wQs, castleRights.bKs, castleRights.bQs));
     enPassantLog.add(new Square(enPassant.row, enPassant.col));
   }
+
   public void printBoard()
   {
-    printLayout();
     String str = "";
     for (int row = 7; row >= 0; row--)
     {
-      str += String.valueOf(row) + " ";
+      str += String.valueOf(row+1) + " ";
       for (int col = 0; col < 8; col++)
       {
         str += boardPrintKey.get((int)board[row*8+col]) + " ";
       }
       str += "\n";
     }
-    System.out.println(str + "  0  1  2  3  4  5  6  7");
+    System.out.println(str + "  a  b  c  d  e  f  g  h");
 
     System.out.println(String.valueOf(enPassant.row)+String.valueOf(enPassant.col));
+    System.out.println(String.valueOf(pKloc.row)+String.valueOf(pKloc.col));
+    System.out.println(String.valueOf(nKloc.row)+String.valueOf(nKloc.col));
+    System.out.println(String.valueOf(castleRights.wKs)+String.valueOf(castleRights.wQs)+String.valueOf(castleRights.bKs)+String.valueOf(castleRights.bQs));
   }
   public void printLayout()
   {
@@ -239,11 +291,8 @@ class gameState {
     board[move.srow*8+move.scol] = 0;
     if (turn == 1)
     {
-      System.out.println("t1");
-      System.out.println(move.isCastle);
       if (move.isCastle)
       {
-        System.out.println("CASTLE");
         if (move.ecol == 6)
         {
           board[5] = 4;
@@ -264,6 +313,7 @@ class gameState {
         pKloc = new Square(move.erow, move.ecol);//positive king location
         castleRights.wKs = false;
         castleRights.wQs = false;
+        enPassant = new Square(0,0);
       }
       else if (move.pieceMoved == 1 && move.srow == 1 && move.erow == 3)
       {
@@ -278,7 +328,6 @@ class gameState {
     {
       if (move.isCastle)
       {
-        System.out.println("BCASTLE");
         if (move.ecol == 6)
         {
           board[61] = -4;
@@ -294,15 +343,16 @@ class gameState {
       {
         board[24+move.ecol] = 0;
       }
-      if (move.pieceMoved == 6)
+      if (move.pieceMoved == -6)
       {
         nKloc = new Square(move.erow, move.ecol);
         castleRights.bKs = false;
         castleRights.bQs = false;
+        enPassant = new Square(0,0);
       }
       else if (move.pieceMoved == -1 && move.srow == 6 && move.erow == 4)
       {
-        enPassant = new Square(5,move.ecol);
+        enPassant = new Square(5, move.ecol);
       }
       else
       {
@@ -322,7 +372,7 @@ class gameState {
   {
     var move = moveLog.get(moveLog.size()-1);
     moveLog.remove(moveLog.size()-1);
-    
+
     var cr = castleRightsLog.get(castleRightsLog.size()-2);
     castleRights = new CastleRights(cr.wKs, cr.wQs, cr.bKs, cr.bQs);
     castleRightsLog.remove(castleRightsLog.size()-1);
@@ -333,7 +383,6 @@ class gameState {
 
     board[move.srow*8+move.scol] = (byte)move.pieceMoved;
     board[move.erow*8+move.ecol] = (byte)move.pieceCaptured;
-    System.out.println("UNDO"+String.valueOf(move.isCastle));
     if (turn == -1)
     {
       if (move.isCastle)
@@ -377,7 +426,7 @@ class gameState {
       {
         board[24+move.ecol] = 1;
       }
-      if (move.pieceMoved == 6)
+      if (move.pieceMoved == -6)
       {
         nKloc = new Square(move.srow, move.scol);
       }
@@ -392,23 +441,97 @@ class gameState {
   {
     var validMoves = getValidMoves();
     int size = validMoves.size();
+    System.out.println("Possible moves: ");
     for (int i = 0; i < size; i++)
     {
-      System.out.println(validMoves.get(i).moveID);
-      if (moveID.equals(validMoves.get(i).moveID))
+      System.out.println("-"+validMoves.get(i).getNotation());
+      if (moveID.equals(validMoves.get(i).getNotation()))
       {
         return validMoves.get(i);
       }
     }
     return new Move();
   }
-  public ArrayList<Move> getValidMoves()
+  
+  
+  public Move getBestMove()
+  {
+    var validMoves = getValidMoves();
+    int eval;
+    int bestEval = -1000;
+    Move bestMove = new Move();
+    if (validMoves.size() == 0)
+    {
+      System.out.println("Game over, no valid moves found");
+    }
+    else
+    {
+      for (int i = 0; i < validMoves.size(); i++)
+      {
+        Move move = validMoves.get(i);
+        makeMove(move);
+        eval = -negaMax(startDepth-1, -100, 100);
+        undoMove();
+        System.out.println(move.getNotation() + " : " + String.valueOf(eval));
+        if (eval > bestEval)
+        {
+          bestMove = validMoves.get(i);
+          bestEval = eval;
+        }
+      }
+    }
+    System.out.println("BEST MOVE: " + bestMove.getNotation());
+    System.out.println("BEST EVAL: " + bestEval);
+    return bestMove;
+  }
+
+  public int negaMax(int depth, int alpha, int beta)
+  {
+    if (depth <= 0)
+    {
+      return evalPos();
+    }
+    var validMoves = getValidMoves();
+    if (validMoves.size() < 0)
+    {
+      return -1;
+    }
+    else
+    {
+      for (int i = 0; i < validMoves.size(); i++)
+      {
+        makeMove(validMoves.get(i));
+        int eval = -negaMax(depth-1, -beta, -alpha);
+        undoMove();
+        if (eval >= beta)
+        {
+          return beta;
+        }
+        if (eval > alpha)
+        {
+          alpha = eval;
+        }
+      }
+    }
+    return alpha;
+  }
+
+  int evalPos()
+  {
+    int eval = 0;
+    for (int i = 0; i < 64; i++)
+    {
+      eval += board[i];
+    }
+    return eval;
+  }
+  
+  ArrayList<Move> getValidMoves()
   {
     getPinsAndChecks();
     var validMoves = getPossibleMoves();
     if (checks.size() == 1) //if there is only one check, eliminate all moves but those that move king, block check, or eliminate piece giving check
     {
-      System.out.println("CHECK");
       Square[] check = checks.get(0);
       for (int i = validMoves.size()-1; i >= 0; i--)
       {
@@ -425,7 +548,6 @@ class gameState {
     }
     else if (checks.size() > 1) //if there is more than one check, eliminate all moves but king moves
     {
-      System.out.println("DOUBLE CHECK");
       return getKingMoves();
     }
     else 
@@ -449,7 +571,7 @@ class gameState {
     }
     return false;
   }
-  public ArrayList<Move> getPossibleMoves()
+  ArrayList<Move> getPossibleMoves()
   {
     var validMoves = new ArrayList<Move>();
     for (int row = 0; row < 8; row++)
@@ -570,7 +692,7 @@ class gameState {
       }
     }
   }
-  public ArrayList<Move> getPawnMoves(int row, int col)
+  ArrayList<Move> getPawnMoves(int row, int col)
   {
     boolean piecepinned = false;
     Square pindirection = new Square(10,10);
@@ -612,7 +734,7 @@ class gameState {
     }
     return validMoves;
   }
-  public ArrayList<Move> getKnightMoves(int row, int col)
+  ArrayList<Move> getKnightMoves(int row, int col)
   {
     var validMoves = new ArrayList<Move>();
     for (int i = pins.size()-1; i >= 0; i--)
@@ -639,10 +761,11 @@ class gameState {
     }
     return validMoves;
   }
-  public ArrayList<Move> getKingMoves()
+  ArrayList<Move> getKingMoves()
   {
     var validMoves = new ArrayList<Move>();
     Square kingloc = turn == 1 ? pKloc : nKloc;
+    board[kingloc.row*8+kingloc.col] = 0;
     for (int i = 0; i < 8; i++)//loop through different thetas, aka directions that we are exploring
     {
       int drow = queenDirections.get(i).row + kingloc.row;
@@ -652,10 +775,14 @@ class gameState {
         int epiece = board[(drow)*8+dcol];
         if ((epiece == 0 || epiece/Math.abs(epiece) == -turn) && !isAttacked(drow, dcol))
         {
-          validMoves.add(new Move(kingloc.row, kingloc.col, drow, dcol, board));
+          board[kingloc.row*8+kingloc.col] = (byte)(turn * 6);
+          var move = new Move(kingloc.row, kingloc.col, drow, dcol, board);
+          board[kingloc.row*8+kingloc.col] = 0;
+          validMoves.add(move);
         }
       }
     }
+    board[kingloc.row*8+kingloc.col] = (byte)(turn * 6);
     validMoves.addAll(getCastleMoves());
     return validMoves;
   }
@@ -706,7 +833,6 @@ class gameState {
 
   boolean isAttacked(int row, int col)
   {
-    System.out.println(row*10+col);
     for (int i = 0; i < 8; i++)
     {
       Square direction = queenDirections.get(i);
@@ -721,20 +847,14 @@ class gameState {
           {
             if (spiece/type == turn)
             {
-              System.out.println(spiece);
               break;
             }
             else if ((type == 1 && m == 1 && (i >= (turn == 1? 0 : 2) && (i <= (turn == 1? 1 : 3)))) || (type == 5) || (type == 3 && i <= 3) || (type == 4 && i >= 4))
             {
-              System.out.println(spiece);
               return true;
             }
             else
             {
-              System.out.println("\n");
-              System.out.print(type);
-              System.out.print(i);
-              System.out.println("FAIL" + String.valueOf(spiece));
               break;
             }
           }
@@ -747,15 +867,16 @@ class gameState {
     }
     for (int i = 0; i < 8; i++)
     {
-      var spiece = knightMoves.get(i);
-      if (spiece.row >= 0 && spiece.row <= 7 && spiece.col >= 0 && spiece.col <= 7 && board[spiece.row*8+spiece.col] == -turn*2)
+      int srow = knightMoves.get(i).row+row;
+      int scol = knightMoves.get(i).col+col;
+      if (srow >= 0 && srow <= 7 && scol >= 0 && scol <= 7 && board[srow*8+scol] == -turn*2)
       {
         return true;
       }
     }
     return false;
   }
-  public ArrayList<Move> getDirectionalMoves(int row, int col, ArrayList<Square> directions)
+  ArrayList<Move> getDirectionalMoves(int row, int col, ArrayList<Square> directions)
   {
     boolean piecepinned = false;
     Square pindirection = new Square(10,10);
@@ -779,9 +900,14 @@ class gameState {
         if (row+drow >= 0 && row+drow <= 7 && col+dcol >= 0 && col+dcol <= 7 && (!piecepinned || (pindirection.row == directions.get(i).row && pindirection.col == directions.get(i).col)))
         {
           int epiece = board[(row+drow)*8+col+dcol];
-          if (epiece == 0 || epiece/Math.abs(epiece) == -turn)
+          if (epiece == 0)
           {
             validMoves.add(new Move(row, col, row+drow, col+dcol, board));
+          }
+          else if (epiece/Math.abs(epiece) == -turn)
+          {
+            validMoves.add(new Move(row, col, row+drow, col+dcol, board));
+            break;
           }
           else
           {
@@ -810,6 +936,26 @@ class Move
   public int pieceMoved;
   public int pieceCaptured;
   public String moveID = "";
+  public static HashMap<Integer, String> intToLetter = new HashMap<Integer, String>(){{
+    put(0,"a");
+    put(1,"b");
+    put(2,"c");
+    put(3,"d");
+    put(4,"e");
+    put(5,"f");
+    put(6,"g");
+    put(7,"h");
+  }};
+  public static HashMap<String, Integer> letterToInt = new HashMap<String, Integer>(){{
+    put("a",0);
+    put("b",1);
+    put("c",2);
+    put("d",3);
+    put("e",4);
+    put("f",5);
+    put("g",6);
+    put("h",7);
+  }};
   Move(int startRow, int startCol, int endRow, int endCol, byte[] board)
   {
     srow = startRow;
@@ -827,25 +973,28 @@ class Move
     erow = endRow;
     ecol = endCol;
     isCastle = isSpecial;
-    System.out.println("waw"+String.valueOf(isCastle));
     isEnPassent = !isSpecial;
     moveID = String.valueOf(startRow) + String.valueOf(startCol) + String.valueOf(endRow) + String.valueOf(endCol);
     pieceMoved = board[srow*8+scol];
     pieceCaptured = board[erow*8+ecol];
   }
-  Move(String MoveID, byte[] board)
+  Move(String notation, byte[] board)
   {
-    srow = Integer.parseInt(MoveID.substring(0,1));
-    scol = Integer.parseInt(MoveID.substring(1,2));
-    erow = Integer.parseInt(MoveID.substring(2,3));
-    ecol = Integer.parseInt(MoveID.substring(3,4));
-    moveID = MoveID;
+    srow = letterToInt.get(notation.substring(0,1));
+    scol = Integer.parseInt(notation.substring(1,2));
+    erow = letterToInt.get(notation.substring(2,3));
+    ecol = Integer.parseInt(notation.substring(3,4));
+    moveID = String.valueOf(srow) + String.valueOf(scol) + String.valueOf(srow) + String.valueOf(scol);
     pieceMoved = board[srow*8+scol];
     pieceCaptured = board[erow*8+ecol];
   }
   Move()
   {
 
+  }
+  String getNotation()
+  {
+    return intToLetter.get(scol) + String.valueOf(srow+1) + intToLetter.get(ecol) + String.valueOf(erow+1);
   }
 }
 class Square
