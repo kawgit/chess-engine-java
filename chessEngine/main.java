@@ -6,8 +6,9 @@ class Main {
   public static void main(String[] args) {
 
 
-    var gs = new gameState("r3b2k/1p2q1rp/ppn2p1Q/4pP2/2BpP3/6R1/PPP3PP/5RK1 w - - 4 24", 1, 5);
+    var gs = new gameState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 1, 12, 300);
     //unsolved "r4rk1/1b3p1p/p1q1pQp1/6RP/8/8/PPp2PP1/R5K1 w - - 0 1" estimated depth 10
+    // "rr3k2/4n3/1q1p2p1/2pP2Q1/5PP1/1p6/p3N3/K6R w - - 0 38"
 
     boolean running = true;
 
@@ -21,13 +22,17 @@ class Main {
         long finish = System.currentTimeMillis();
         System.out.println("Time elapsed: " + String.valueOf((double)(finish - start)/1000));
       }
+      else 
+      {
+        gs.nValidMoves = gs.getValidMoves();
+      }
       gs.printBoard();
       System.out.println("enter move: \n");
       String input = scanner.nextLine();
       if (input.length() == 4)
       {
         Move move = gs.isInValid(input);
-        if (move.moveID != "")
+        if (move.srow != -5)
         {
           gs.makeMove(move);
         }        
@@ -74,9 +79,9 @@ class gameState {
   public byte board[] = new byte[64];
   public int turn; //1 and -1
   public int aiMode; //0 = off, 1 = play for positive(white) (will be able to play for different colors in future, for now it plays as white only)
-  public int startDepth;
-
-  int savingCount = 0;
+  public int maxDepth;
+  public int maxCalcTime;
+  public int collisions;
 
   HashMap<Integer, String> boardPrintKey = new HashMap<Integer, String>();
   HashMap<String, Integer> fenKey = new HashMap<String, Integer>();
@@ -90,6 +95,8 @@ class gameState {
   ArrayList<Square[]> pins = new ArrayList<Square[]>();
   ArrayList<Square[]> checks = new ArrayList<Square[]>();
   ArrayList<Move> moveLog = new ArrayList<Move>();
+  ArrayList<Move> nValidMoves = new ArrayList<Move>();
+  ArrayList<Move> pValidMoves = new ArrayList<Move>();
   ArrayList<CastleRights> castleRightsLog = new ArrayList<CastleRights>();
   ArrayList<Integer> enPassantLog = new ArrayList<Integer>();
   ArrayList<FoundEval> transpositionTable = new ArrayList<FoundEval>();
@@ -97,15 +104,17 @@ class gameState {
   Square pKloc; //positive king location
   Square nKloc; //negative king location
   int enPassant = -1; //possible location of enpassant capture (erow, ecol)
+  int makeCount = 0;
+  int undoCount = 0;
   CastleRights castleRights = new CastleRights(false, false, false, false);
 
 
 
-  gameState(String fen, int IaiMode, int Istartdepth)
+  gameState(String fen, int iAiMode, int iMaxDepth, int iMaxCalcTime)
   {
-    aiMode = IaiMode;
-    startDepth = Istartdepth;
-
+    aiMode = iAiMode;
+    maxDepth = iMaxDepth;
+    maxCalcTime = iMaxCalcTime;
 
     //constructed here because it is needed for crreation of board
     fenKey.put("p", 7);
@@ -168,33 +177,15 @@ class gameState {
       }
     }
     cgv();
-  }
-
-
-
-  public static boolean isNumeric(String str)
-  {
-    try
+    if (turn == 1)
     {
-      Integer.parseInt(str);
-      return true;
+      pValidMoves = getValidMoves();
     }
-    catch (Exception e)
+    else 
     {
-      return false;
+      nValidMoves = getValidMoves();
     }
   }
-
-  public int getColor(int piece)
-  {
-    return piece <= 6? (piece == 0? 0 : 1) : -1;
-  }
-
-  public int getType(int piece)
-  {
-    return piece <= 6? piece : piece - 6;
-  }
-
   void cgv() //construct game variables
   {
     boardPrintKey.put(0,"--");
@@ -264,17 +255,35 @@ class gameState {
     castleRightsLog.add(new CastleRights(castleRights.wKs, castleRights.wQs, castleRights.bKs, castleRights.bQs));
     enPassantLog.add(enPassant);
 
-    Random rand = new Random(123);
+    Random rand = new Random(432738243); // 421948721 
     int[] irngMap = new int[844]; //(OBJECTIVE IS TO CREATE KEYS THAT ALMOST NEVER OVERLAP) 1 number for each possible peice on each possible square + 1 for empty(13 x 64), 1 number for each castleRights boolean (4), 1 number for each possible enpassant column(8)
     for (int i = 0; i < 844; i++) //negative or positive for turn
     {
-      irngMap[i] = rand.nextInt(Integer.MAX_VALUE);
+      irngMap[i] = rand.nextInt(); //int.max / 844 = 2544411
     }
     FoundEval.rngMap = irngMap;
   }
 
-
-
+  public static boolean isNumeric(String str)
+  {
+    try
+    {
+      Integer.parseInt(str);
+      return true;
+    }
+    catch (Exception e)
+    {
+      return false;
+    }
+  }
+  public int getColor(int piece)
+  {
+    return piece <= 6? (piece == 0? 0 : 1) : -1;
+  }
+  public int getType(int piece)
+  {
+    return piece <= 6? piece : piece - 6;
+  }
 
   public void printBoard()
   {
@@ -289,11 +298,6 @@ class gameState {
       str += "\n";
     }
     System.out.println(str + "  a  b  c  d  e  f  g  h");
-
-    System.out.println(String.valueOf(enPassant));
-    System.out.println(String.valueOf(pKloc.row)+String.valueOf(pKloc.col));
-    System.out.println(String.valueOf(nKloc.row)+String.valueOf(nKloc.col));
-    System.out.println(String.valueOf(castleRights.wKs)+String.valueOf(castleRights.wQs)+String.valueOf(castleRights.bKs)+String.valueOf(castleRights.bQs));
   }
   public void printLayout()
   {
@@ -310,11 +314,9 @@ class gameState {
     System.out.println(str + "  0  1  2  3  4  5  6  7");
   }
 
-
-
-
   public void makeMove(Move move)
   {
+    makeCount++;
     board[move.erow*8+move.ecol] = (byte)move.pieceMoved;
     board[move.srow*8+move.scol] = 0;
     if (turn == 1)
@@ -400,12 +402,9 @@ class gameState {
     castleRightsLog.add(new CastleRights(castleRights.wKs, castleRights.wQs, castleRights.bKs, castleRights.bQs));
     enPassantLog.add(enPassant);
   }
-
-
-
-
   public void undoMove()
   {
+    undoCount++;
     var move = moveLog.get(moveLog.size()-1);
     moveLog.remove(moveLog.size()-1);
 
@@ -469,88 +468,6 @@ class gameState {
     turn = -turn;
   }
 
-
-  public void insertFoundEval(FoundEval foundEval)
-  {
-    int left = 0;
-    int right = transpositionTable.size()-1;
-    long prevBoard = 0;
-    if (right != -1)
-    {
-      while (true)
-      {
-        var scan = transpositionTable.get(Math.round((left+right)/2));
-        if (foundEval.board == scan.board)
-        {
-          break;
-        }
-        else if (foundEval.board < scan.board)
-        {
-          right = Math.round((left+right)/2);
-        }
-        else if (foundEval.board > scan.board)
-        {
-          left = Math.round((left+right)/2);
-        }
-        if  (scan.board != prevBoard)
-        {
-          prevBoard = scan.board;
-        }
-        else
-        {
-          if (foundEval.board > scan.board)
-          {
-            transpositionTable.add((int)Math.ceil((left+right)/2)+1, foundEval);
-          }
-          else
-          {
-            transpositionTable.add((int)Math.ceil((left+right)/2), foundEval);
-          }
-          break;
-        }
-      }
-    }
-    else 
-    {
-      transpositionTable.add(foundEval);
-    }
-  }
-
-  public Integer isFoundEval(FoundEval foundEval) //returns -1 if false, else returns index of found eval in transposition table
-  {
-    int left = 0;
-    int right = transpositionTable.size()-1;
-    long prevBoard = 0;
-    if (right != -1)
-    {
-      while (true)
-      {
-        var scan = transpositionTable.get(Math.round((left+right)/2));
-        if (scan.board == foundEval.board)
-        {
-          return Math.round((left+right)/2);
-        }
-        else if (scan.board < foundEval.board)
-        {
-          left = Math.round((left+right)/2);
-        }
-        else if (scan.board > foundEval.board)
-        {
-          right = Math.round((left+right)/2);
-        }
-        if  (scan.board != prevBoard)
-        {
-          prevBoard = scan.board;
-        }
-        else
-        {
-          return -1;
-        }
-      }
-    }
-    return -1;
-  }
-
   public Move isInValid(String moveID)
   {
     var validMoves = getValidMoves();
@@ -566,98 +483,6 @@ class gameState {
     }
     return new Move();
   }
-  
-  
-  public Move getBestMove()
-  {
-    var validMoves = getValidMoves();
-    int bestEval = -1000;
-    Move bestMove = new Move();
-    if (validMoves.size() == 0)
-    {
-      System.out.println("Game over, no valid moves found");
-    }
-    else
-    {
-      for (int i = 0; i < validMoves.size(); i++)
-      {
-        int eval;
-        Move move = validMoves.get(i);
-        makeMove(move);
-        eval = -negaMax(startDepth-1, -100, 100);
-        insertFoundEval(new FoundEval(startDepth, eval, board, turn, castleRights, enPassant));
-        undoMove();
-        System.out.println(move.getNotation() + " : " + String.valueOf(eval));
-        if (eval > bestEval)
-        {
-          bestMove = validMoves.get(i);
-          bestEval = eval;
-        }
-      }
-    }
-    System.out.println("BEST MOVE: " + bestMove.getNotation());
-    System.out.println("BEST EVAL: " + bestEval);
-    System.out.println("TRANSPOSITION TABLE SIZE : " + String.valueOf(transpositionTable.size()));
-    System.out.println("SAVING COUNT : " + String.valueOf(savingCount));
-    return bestMove;
-  }
-
-  public int negaMax(int depth, int alpha, int beta)
-  {
-    if (depth <= 0)
-    {
-      return evalPos();
-    }
-    var validMoves = getValidMoves();
-    if (validMoves.size() == 0)
-    {
-      if (checks.size() == 0)
-      {
-        return 0;    
-      }
-      else
-      {
-        return -1000*depth;
-      }
-    }
-    else
-    {
-      FoundEval thisEval = new FoundEval(depth, 0, board, turn, castleRights, enPassant);
-      int r = isFoundEval(thisEval);
-      if (r != -1 && transpositionTable.get(r).depth >= depth)
-      {
-        savingCount++;
-        return transpositionTable.get(r).eval;
-      }
-      for (int i = 0; i < validMoves.size(); i++)
-      {
-        makeMove(validMoves.get(i));
-        int eval = -negaMax(depth-1, -beta, -alpha);
-        insertFoundEval(new FoundEval(depth, eval, board, turn, castleRights, enPassant));
-        undoMove();
-        if (eval >= beta)
-        {
-          return beta;
-        }
-        if (eval > alpha)
-        {
-          alpha = eval;
-        }
-      }
-    }
-    return alpha;
-  }
-
-  int evalPos()
-  {
-    int eval = 0;
-    for (int i = 0; i < 64; i++)
-    {
-      eval += pieceToEval.get(board[i]);
-    }
-    return eval*turn;      
-  }
-  
   ArrayList<Move> getValidMoves()
   {
     getPinsAndChecks();
@@ -865,6 +690,7 @@ class gameState {
       }
     }
   }
+
   ArrayList<Move> getPawnMoves(int row, int col)
   {
     boolean piecepinned = false;
@@ -892,7 +718,7 @@ class gameState {
     {
       if (getColor(board[(row+turn)*8+col+1]) == -turn)//regular capture
         validMoves.add(new Move(row, col, row+turn, col+1, board));
-      if (col+1 == enPassant)//en passant
+      if (col+1 == enPassant && ((row == 4 && turn == 1) || (row == 3 && turn == -1)))//en passant
       {
         validMoves.add(new Move(row, col, row+turn, col+1, board, false));
       }
@@ -901,7 +727,7 @@ class gameState {
     {
       if (getColor(board[(row+turn)*8+col-1]) == -turn)//regular capture
         validMoves.add(new Move(row, col, row+turn, col-1, board));
-      if (col-1 == enPassant)//en passant
+      if (col-1 == enPassant && ((row == 4 && turn == 1) || (row == 3 && turn == -1)))//en passant
       {
         validMoves.add(new Move(row, col, row+turn, col-1, board, false));
       }
@@ -960,96 +786,6 @@ class gameState {
     validMoves.addAll(getCastleMoves());
     return validMoves;
   }
-
-  ArrayList<Move> getCastleMoves()
-  {
-    Square kingloc = turn == 1 ? pKloc : nKloc;
-    var validMoves = new ArrayList<Move>();
-    if (checks.size() == 0)
-    {
-      if (turn == 1)
-      {
-        if (castleRights.wKs)
-        {
-          if (board[5] == 0 && board[6] == 0 && !isAttacked(0, 5) && !isAttacked(0, 6))
-          {
-            validMoves.add(new Move(kingloc.row, kingloc.col, 0, 6, board, true));
-          }
-        }
-        if (castleRights.wQs)
-        {
-          if (board[1] == 0 && board[2] == 0 && board[3] == 0 && !isAttacked(0, 1) && !isAttacked(0, 2) && !isAttacked(0, 3))
-          {
-            validMoves.add(new Move(kingloc.row, kingloc.col, 0, 2, board, true));
-          }
-        }
-      }
-      else
-      {
-        if (castleRights.bKs)
-        {
-          if (board[61] == 0 && board[62] == 0 && !isAttacked(7, 5) && !isAttacked(7, 6))
-          {
-            validMoves.add(new Move(kingloc.row, kingloc.col, 7, 6, board, true));
-          }
-        }
-        if (castleRights.bQs)
-        {
-          if (board[57] == 0 && board[58] == 0 && board[59] == 0 && !isAttacked(8, 2) && !isAttacked(8, 3))
-          {
-            validMoves.add(new Move(kingloc.row, kingloc.col, 7, 2, board, true));
-          }
-        }
-      }
-    }
-    return validMoves;
-  }
-
-  boolean isAttacked(int row, int col)
-  {
-    for (int i = 0; i < 8; i++)
-    {
-      Square direction = queenDirections.get(i);
-      for (int m = 1; m < 8; m++)
-      {
-        var sSquare = new Square(direction.row*m+row, direction.col*m+col);
-        if (sSquare.row >= 0 && sSquare.row <= 7 && sSquare.col >= 0 && sSquare.col <= 7)
-        {
-          int spiece = board[sSquare.row*8+sSquare.col]; //scanner piece
-          int type = getType(spiece);
-          if (type != 0)
-          {
-            if (spiece/type == turn)
-            {
-              break;
-            }
-            else if ((type == 1 && m == 1 && (i >= (turn == 1? 0 : 2) && (i <= (turn == 1? 1 : 3)))) || (type == 5) || (type == 3 && i <= 3) || (type == 4 && i >= 4) || (type == 6 && m == 1))
-            {
-              return true;
-            }
-            else
-            {
-              break;
-            }
-          }
-        }
-        else
-        {
-          break;
-        }
-      }
-    }
-    for (int i = 0; i < 8; i++)
-    {
-      int srow = knightMoves.get(i).row+row;
-      int scol = knightMoves.get(i).col+col;
-      if (srow >= 0 && srow <= 7 && scol >= 0 && scol <= 7 && board[srow*8+scol] == -turn*2)
-      {
-        return true;
-      }
-    }
-    return false;
-  }
   ArrayList<Move> getDirectionalMoves(int row, int col, ArrayList<Square> directions)
   {
     boolean piecepinned = false;
@@ -1096,48 +832,465 @@ class gameState {
     }
     return validMoves;
   }
+  ArrayList<Move> getCastleMoves()
+  {
+    Square kingloc = turn == 1 ? pKloc : nKloc;
+    var validMoves = new ArrayList<Move>();
+    if (checks.size() == 0)
+    {
+      if (turn == 1)
+      {
+        if (castleRights.wKs)
+        {
+          if (board[5] == 0 && board[6] == 0 && !isAttacked(0, 5) && !isAttacked(0, 6))
+          {
+            validMoves.add(new Move(kingloc.row, kingloc.col, 0, 6, board, true));
+          }
+        }
+        if (castleRights.wQs)
+        {
+          if (board[1] == 0 && board[2] == 0 && board[3] == 0 && !isAttacked(0, 1) && !isAttacked(0, 2) && !isAttacked(0, 3))
+          {
+            validMoves.add(new Move(kingloc.row, kingloc.col, 0, 2, board, true));
+          }
+        }
+      }
+      else
+      {
+        if (castleRights.bKs)
+        {
+          if (board[61] == 0 && board[62] == 0 && !isAttacked(7, 5) && !isAttacked(7, 6))
+          {
+            validMoves.add(new Move(kingloc.row, kingloc.col, 7, 6, board, true));
+          }
+        }
+        if (castleRights.bQs)
+        {
+          if (board[57] == 0 && board[58] == 0 && board[59] == 0 && !isAttacked(8, 2) && !isAttacked(8, 3))
+          {
+            validMoves.add(new Move(kingloc.row, kingloc.col, 7, 2, board, true));
+          }
+        }
+      }
+    }
+    return validMoves;
+  }
+  boolean isAttacked(int row, int col)
+  {
+    for (int i = 0; i < 8; i++)
+    {
+      Square direction = queenDirections.get(i);
+      for (int m = 1; m < 8; m++)
+      {
+        var sSquare = new Square(direction.row*m+row, direction.col*m+col);
+        if (sSquare.row >= 0 && sSquare.row <= 7 && sSquare.col >= 0 && sSquare.col <= 7)
+        {
+          int spiece = board[sSquare.row*8+sSquare.col]; //scanner piece
+          int type = getType(spiece);
+          if (type != 0)
+          {
+            if (getColor(spiece) == turn)
+            {
+              break;
+            }
+            else if ((type == 1 && m == 1 && (i >= (turn == 1? 0 : 2) && (i <= (turn == 1? 1 : 3)))) || (type == 5) || (type == 3 && i <= 3) || (type == 4 && i >= 4) || (type == 6 && m == 1))
+            {
+              return true;
+            }
+            else
+            {
+              break;
+            }
+          }
+        }
+        else
+        {
+          break;
+        }
+      }
+    }
+    for (int i = 0; i < 8; i++)
+    {
+      int srow = knightMoves.get(i).row+row;
+      int scol = knightMoves.get(i).col+col;
+      if (srow >= 0 && srow <= 7 && scol >= 0 && scol <= 7)
+      {
+        int spiece = board[srow*8+scol];
+        if (getColor(spiece) == -turn && getType(spiece) == 2)
+        {
+        return true;          
+        }
+      }
+    }
+    return false;
+  }
+
+  public Move getBestMove()
+  {
+    makeCount = 0;
+    undoCount = 0;
+    System.out.println("\n\n\n");
+    int bestEval = -100000;
+    Move bestMove = new Move();
+    long start = System.currentTimeMillis();
+    for (int depth = 2; (depth<=maxDepth && ((System.currentTimeMillis() - start)/1000 < maxCalcTime)); depth++)
+    {
+      bestEval = -100000;
+      bestMove = new Move();
+      var orderedMoves = new ArrayList<Move>();
+      var validMoves = new ArrayList<Move>();
+      FoundEval thisEval = new FoundEval(depth, 0, board, turn, castleRights, enPassant);
+      int r = isFoundEval(thisEval);
+      if (r != -1)
+      {
+        validMoves = transpositionTable.get(r).orderedMoves;
+      }
+      else 
+      {
+        System.out.println("DID NOT USE ORDERED");
+        validMoves = getValidMoves();
+      }
+      if (validMoves.size() == 0)
+      {
+        System.out.println("Game over, no valid moves found");
+      }
+      else
+      {
+        System.out.println("Move | Eval | Calculation time | Depth");
+        System.out.println("—————————————————————————————————————————");
+        for (int i = 0; i < validMoves.size(); i++)
+        {
+          long startt = System.currentTimeMillis();
+          int eval;
+          Move move = validMoves.get(i);
+          makeMove(move);
+          eval = -negaMax(depth-1, -100000, 100000);
+          move.eval = eval;
+          insertOrderedMove(move, orderedMoves);
+          undoMove();
+          System.out.println(move.getNotation() + " | " + (eval < 0? "" : " ") + (Math.abs(eval) > 9? "" : " ") + (Math.abs(eval) > 99? "" : " ") + String.valueOf(eval) + " |    " + String.valueOf(((double)System.currentTimeMillis()-startt)/1000) + " seconds |     " + String.valueOf(depth));
+          if (eval > bestEval)
+          {
+            bestMove = validMoves.get(i);
+            bestEval = eval;
+            if (bestEval >= 1000)
+            {
+              System.out.println("FOUND");
+              break;
+            }
+          }
+        }
+        if (thisEval.board != (new FoundEval(depth, 0, board, turn, castleRights, enPassant)).board)
+        {
+          System.out.println("THERE WAS PROBABLY A HASH COLLISION");
+          System.exit(0);
+        }
+      }
+      insertFoundEval(new FoundEval(depth, bestEval, board, turn, castleRights, enPassant, orderedMoves));
+    }
+    System.out.println("Best Move                | " + bestMove.getNotation());
+    System.out.println("Best Evaluation          | " + bestEval);
+    System.out.println("Transposition table size | " + String.valueOf(transpositionTable.size()));
+    System.out.println("Transposition collisions | " + String.valueOf(collisions));
+    System.out.println("Collision rate(% of pos) | " + String.valueOf((double)collisions/transpositionTable.size()));
+    collisions = 0;
+    return bestMove;
+  }
+  public int negaMax(int depth, int alpha, int beta)
+  {
+    var orderedMoves = new ArrayList<Move>();
+    var validMoves = new ArrayList<Move>();
+    var boardSave = board.clone();
+    if (depth <= 0)
+    {
+      return evalPos();
+    }
+    else
+    {
+      FoundEval thisEval = new FoundEval(depth, 0, board, turn, castleRights, enPassant);
+      int r = isFoundEval(thisEval);
+      if (r != -1)
+      {
+        if (transpositionTable.get(r).depth >= depth)
+        {
+          return transpositionTable.get(r).eval;          
+        }
+        else 
+        {
+          validMoves = transpositionTable.get(r).orderedMoves;
+        }
+      }
+      else
+      {
+        validMoves = getValidMoves();
+      }
+      if (validMoves.size() == 0)
+      {
+        if (checks.size() == 0)
+        {
+          return 0;    
+        }
+        else
+        {
+          return -1000;
+        }
+      }
+      for (int i = 0; i < validMoves.size(); i++)
+      {
+        Move move = validMoves.get(i);
+        makeMove(move);
+        int eval = -negaMax(depth-1, -beta, -alpha);
+        move.eval = eval;
+        insertOrderedMove(move, orderedMoves);
+        undoMove();
+        if (thisEval.board != (new FoundEval(depth, 0, board, turn, castleRights, enPassant)).board)
+        {
+          board = boardSave.clone();
+          i = 0;
+          orderedMoves.clear();
+          validMoves.clear();
+          if (r != -1)
+          {
+            transpositionTable.remove(r);
+          }
+          collisions++;
+          return safeNegaMax(depth, alpha, beta);
+        }
+        if (eval > alpha)
+        {
+          alpha = eval;
+        }
+        if (alpha >= beta)
+        {
+          orderedMoves.addAll(validMoves.subList(i+1, validMoves.size()));
+          break;
+        }
+      }
+    }
+    insertFoundEval(new FoundEval(depth, alpha, board, turn, castleRights, enPassant, orderedMoves)); //insert to transposition table
+    return alpha;
+  }
+  int safeNegaMax(int depth, int alpha, int beta) //does not use transposition table, used as back up to regular negamax in case of collision.
+  {
+    var validMoves = new ArrayList<Move>();
+    if (depth <= 0)
+    {
+      return evalPos();
+    }
+    else
+    {
+      validMoves = getValidMoves();
+      if (validMoves.size() == 0)
+      {
+        if (checks.size() == 0)
+        {
+          return 0;    
+        }
+        else
+        {
+          return -1000*depth;
+        }
+      }
+      for (int i = 0; i < validMoves.size(); i++)
+      {
+        Move move = validMoves.get(i);
+        makeMove(move);
+        int eval = -negaMax(depth-1, -beta, -alpha);
+        undoMove();
+        if (eval > alpha)
+        {
+          alpha = eval;
+        }
+        if (alpha >= beta)
+        {
+          break;
+        }
+      }
+    }
+    return alpha;
+  }
+  int evalPos()
+  {
+    int eval = 0;
+    for (int i = 0; i < 64; i++)
+    {
+      eval += pieceToEval.get(board[i]);
+    }
+    return eval*turn;      
+  }
+  void insertFoundEval(FoundEval foundEval)
+  {
+    int left = 0;
+    int right = transpositionTable.size()-1;
+    long prevBoard = 0;
+    if (right != -1)
+    {
+      while (true)
+      {
+        var scan = transpositionTable.get(Math.round((left+right)/2));
+        if (foundEval.board == scan.board)
+        {
+          transpositionTable.set(Math.round((left+right)/2), foundEval);
+          break;
+        }
+        else if (foundEval.board < scan.board)
+        {
+          right = Math.round((left+right)/2);
+        }
+        else if (foundEval.board > scan.board)
+        {
+          left = Math.round((left+right)/2);
+        }
+        if  (scan.board != prevBoard)
+        {
+          prevBoard = scan.board;
+        }
+        else
+        {
+          if (foundEval.board > scan.board)
+          {
+            transpositionTable.add((int)Math.ceil((left+right)/2)+1, foundEval);
+          }
+          else
+          {
+            transpositionTable.add((int)Math.ceil((left+right)/2), foundEval);
+          }
+          break;
+        }
+      }
+    }
+    else 
+    {
+      transpositionTable.add(foundEval);
+    }
+  }
+  int isFoundEval(FoundEval foundEval) //returns -1 if false, else returns index of found eval in transposition table
+  {
+    int left = 0;
+    int right = transpositionTable.size()-1;
+    long prevBoard = 0;
+    if (right != -1)
+    {
+      while (true)
+      {
+        long scan = transpositionTable.get(Math.round((left+right)/2)).board;
+        if (scan == foundEval.board)
+        {
+          return Math.round((left+right)/2);
+        }
+        else if (scan < foundEval.board)
+        {
+          left = Math.round((left+right)/2);
+        }
+        else if (scan > foundEval.board)
+        {
+          right = Math.round((left+right)/2);
+        }
+        if  (scan != prevBoard)
+        {
+          prevBoard = scan;
+        }
+        else
+        {
+          return -1;
+        }
+      }
+    }
+    return -1;
+  }
+  void insertOrderedMove(Move move, ArrayList<Move> list)
+  {
+    int left = 0;
+    int right = list.size()-1;
+    int prev = 0;
+    if (right != -1)
+    {
+      while (true)
+      {
+        var scan = list.get(Math.round((left+right)/2)).eval;
+        if (move.eval == scan)
+        {
+          list.add((int)Math.ceil((left+right)/2), move);
+          break;
+        }
+        else if (move.eval > scan)
+        {
+          right = Math.round((left+right)/2);
+        }
+        else if (move.eval < scan)
+        {
+          left = Math.round((left+right)/2);
+        }
+        if  (scan != prev)
+        {
+          prev = scan;
+        }
+        else
+        {
+          if (move.eval > scan)
+          {
+            list.add((int)Math.ceil((left+right)/2), move);
+          }
+          else
+          {
+            list.add((int)Math.ceil((left+right)/2)+1, move);
+          }
+          break;
+        }
+      }
+    }
+    else 
+    {
+      list.add(move);
+    }
+  }
 }
 
 
 class Move
 {
-  public int srow;
-  public int scol;
-  public int erow;
-  public int ecol;
+  public byte srow;
+  public byte scol;
+  public byte erow;
+  public byte ecol;
+  public byte pieceMoved;
+  public byte pieceCaptured;
+  public int eval;
   public boolean isCastle;
   public boolean isEnPassent;
-  public int pieceMoved;
-  public int pieceCaptured;
-  public String moveID = "";
   public boolean isPawnPromotion;
-  public static HashMap<Integer, String> intToLetter = new HashMap<Integer, String>(){{
-    put(0,"a");
-    put(1,"b");
-    put(2,"c");
-    put(3,"d");
-    put(4,"e");
-    put(5,"f");
-    put(6,"g");
-    put(7,"h");
+
+  public boolean isEqual(Move move)
+  {
+    return (move.srow == srow && move.scol == scol && move.erow == erow && move.ecol == ecol)? true : false;
+  }
+
+  public static HashMap<Byte, String> byteToLetter = new HashMap<Byte, String>(){{
+    put((byte)0,"a");
+    put((byte)1,"b");
+    put((byte)2,"c");
+    put((byte)3,"d");
+    put((byte)4,"e");
+    put((byte)5,"f");
+    put((byte)6,"g");
+    put((byte)7,"h");
   }};
-  public static HashMap<String, Integer> letterToInt = new HashMap<String, Integer>(){{
-    put("a",0);
-    put("b",1);
-    put("c",2);
-    put("d",3);
-    put("e",4);
-    put("f",5);
-    put("g",6);
-    put("h",7);
+  public static HashMap<String, Byte> letterToByte = new HashMap<String, Byte>(){{
+    put("a",(byte)0);
+    put("b",(byte)1);
+    put("c",(byte)2);
+    put("d",(byte)3);
+    put("e",(byte)4);
+    put("f",(byte)5);
+    put("g",(byte)6);
+    put("h",(byte)7);
   }};
   Move(int startRow, int startCol, int endRow, int endCol, byte[] board)
   {
-    srow = startRow;
-    scol = startCol;
-    erow = endRow;
-    ecol = endCol;
-    moveID = String.valueOf(startRow) + String.valueOf(startCol) + String.valueOf(endRow) + String.valueOf(endCol);
+    srow = (byte)startRow;
+    scol = (byte)startCol;
+    erow = (byte)endRow;
+    ecol = (byte)endCol;
     pieceMoved = board[srow*8+scol];
     pieceCaptured = board[erow*8+ecol];
     if ((pieceMoved <= 6? pieceMoved : pieceMoved - 6) == 1 && (erow == 7 || erow == 0))
@@ -1147,27 +1300,21 @@ class Move
   }
   Move(int startRow, int startCol, int endRow, int endCol, byte[] board, boolean isSpecial)//CASTLE BOOLEAN = true, EN PASSANT BOOLEAN = false
   {
-    srow = startRow;
-    scol = startCol;
-    erow = endRow;
-    ecol = endCol;
+    srow = (byte)startRow;
+    scol = (byte)startCol;
+    erow = (byte)endRow;
+    ecol = (byte)endCol;
     isCastle = isSpecial;
     isEnPassent = !isSpecial;
-    moveID = String.valueOf(startRow) + String.valueOf(startCol) + String.valueOf(endRow) + String.valueOf(endCol);
     pieceMoved = board[srow*8+scol];
     pieceCaptured = board[erow*8+ecol];
-    if ((pieceMoved <= 6? pieceMoved : pieceMoved - 6) == 1 && (erow == 7 || erow == 0))
-    {
-      isPawnPromotion = true;
-    } 
   }
   Move(String notation, byte[] board)
   {
-    srow = letterToInt.get(notation.substring(0,1));
-    scol = Integer.parseInt(notation.substring(1,2));
-    erow = letterToInt.get(notation.substring(2,3));
-    ecol = Integer.parseInt(notation.substring(3,4));
-    moveID = String.valueOf(srow) + String.valueOf(scol) + String.valueOf(srow) + String.valueOf(scol);
+    srow = (byte)letterToByte.get(notation.substring(0,1));
+    scol = (byte)Integer.parseInt(notation.substring(1,2));
+    erow = (byte)letterToByte.get(notation.substring(2,3));
+    ecol = (byte)Integer.parseInt(notation.substring(3,4));
     pieceMoved = board[srow*8+scol];
     pieceCaptured = board[erow*8+ecol];
     if ((pieceMoved <= 6? pieceMoved : pieceMoved - 6) == 1 && (erow == 7 || erow == 0))
@@ -1177,21 +1324,21 @@ class Move
   }
   Move()
   {
-
+    srow = (byte)-5;
   }
   String getNotation()
   {
-    return intToLetter.get(scol) + String.valueOf(srow+1) + intToLetter.get(ecol) + String.valueOf(erow+1);
+    return byteToLetter.get(scol) + String.valueOf(srow+1) + byteToLetter.get(ecol) + String.valueOf(erow+1);
   }
 }
 class Square
 {
-  public int row;
-  public int col;
+  public byte row;
+  public byte col;
   Square(int irow, int icol)
   {
-    row = irow;
-    col = icol;
+    row = (byte)irow;
+    col = (byte)icol;
   }
 }
 class CastleRights
@@ -1208,24 +1355,36 @@ class CastleRights
     bQs = ibQs;
   }
 }
-
-
 class FoundEval
 {
   public int depth;
   public int eval;
   public long board;
   public static int[] rngMap;
+  public ArrayList<Move> orderedMoves = new ArrayList<Move>();
   FoundEval(int idepth, int ieval, byte[] iboard, int iturn, CastleRights icastleRights, int ienPassant)
   {
     depth = idepth;
     eval = ieval;
     for (int i = 0; i < 64; i++)
     {
-      board += rngMap[i*13+iboard[i]];
+      board = board ^ rngMap[i*13+iboard[i]];
     }
-    board += (icastleRights.wKs? 1 : 0) * rngMap[832] + (icastleRights.wQs? 1 : 0) * rngMap[833] + (icastleRights.bKs? 1 : 0) * rngMap[834] + (icastleRights.bQs? 1 : 0) * rngMap[835];
-    board += rngMap[836+ienPassant];
-    board = board * iturn;
+    board = board ^ (icastleRights.wKs? 1 : 0) * rngMap[832] + (icastleRights.wQs? 1 : 0) * rngMap[833] + (icastleRights.bKs? 1 : 0) * rngMap[834] + (icastleRights.bQs? 1 : 0) * rngMap[835];
+    board = board ^ rngMap[836+ienPassant];
+    board = board ^ iturn;
+  }
+  FoundEval(int idepth, int ieval, byte[] iboard, int iturn, CastleRights icastleRights, int ienPassant, ArrayList<Move >iorderedMoves)
+  {
+    depth = idepth;
+    eval = ieval;
+    for (int i = 0; i < 64; i++)
+    {
+      board = board ^ rngMap[i*13+iboard[i]];
+    }
+    board = board ^ (icastleRights.wKs? 1 : 0) * rngMap[832] + (icastleRights.wQs? 1 : 0) * rngMap[833] + (icastleRights.bKs? 1 : 0) * rngMap[834] + (icastleRights.bQs? 1 : 0) * rngMap[835];
+    board = board ^ rngMap[836+ienPassant];
+    board = board ^ iturn;
+    orderedMoves = iorderedMoves;
   }
 }
